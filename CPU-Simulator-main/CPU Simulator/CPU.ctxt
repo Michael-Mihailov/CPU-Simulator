@@ -1,0 +1,21 @@
+#BlueJ class context
+comment0.target=CPU
+comment1.params=bus
+comment1.target=CPU(Bus)
+comment2.params=
+comment2.target=void\ simulate()
+comment3.params=
+comment3.target=void\ clockCache()
+comment4.params=entry
+comment4.target=void\ requestMemory(RequestEntry)
+comment5.params=entry
+comment5.target=void\ receiveMemory(RequestEntry)
+comment6.params=entry
+comment6.target=void\ receiveInstruction(RequestEntry)
+comment7.params=entry
+comment7.target=void\ cacheWriteBack(RequestEntry)
+comment8.params=
+comment8.target=int\ requestID()
+comment9.params=equation
+comment9.target=int\ doAlgebra(java.lang.String)
+numComments=10

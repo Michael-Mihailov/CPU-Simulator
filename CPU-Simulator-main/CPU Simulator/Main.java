@@ -1,0 +1,11 @@
+import java.util.*;
+
+public class Main
+{
+    Scanner input = new Scanner(System.in);
+    public static void main(String[] args){
+        Registers registers = new Registers();
+        
+    }
+
+}
