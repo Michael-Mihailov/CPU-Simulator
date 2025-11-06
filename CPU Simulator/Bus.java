@@ -33,8 +33,10 @@ public class Bus
             switch (entry.control)
             {
                 case 0: // I/O to CPU
+                    cpu.receiveInstruction(entry);
                     break;
                 case 1: // CPU to I/O
+                    inOut.receiveLog(entry);
                     break;
                 case 2: // CPU to Main Memory READ
                     resData = mainMemory.getDword(entry.address);
@@ -42,6 +44,8 @@ public class Bus
                 case 3: // CPU to Main Memory WRITE
                     mainMemory.putDword(entry.address, entry.data);
             }
+            
+            // TODO
         }
     }
     

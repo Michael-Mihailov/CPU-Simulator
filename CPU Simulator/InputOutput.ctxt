@@ -1,10 +1,11 @@
 #BlueJ class context
 comment0.target=InputOutput
-comment0.text=\r\n\ Write\ a\ description\ of\ class\ InputOutput\ here.\r\n\r\n\ @author\ (your\ name)\r\n\ @version\ (a\ version\ number\ or\ a\ date)\r\n
 comment1.params=
 comment1.target=InputOutput()
-comment1.text=\r\n\ Constructor\ for\ objects\ of\ class\ InputOutput\r\n
-comment2.params=y
-comment2.target=int\ sampleMethod(int)
-comment2.text=\r\n\ An\ example\ of\ a\ method\ -\ replace\ this\ comment\ with\ your\ own\r\n\r\n\ @param\ \ y\ \ a\ sample\ parameter\ for\ a\ method\r\n\ @return\ \ \ \ the\ sum\ of\ x\ and\ y\r\n
-numComments=3
+comment2.params=bus
+comment2.target=void\ setBut(Bus)
+comment3.params=daScript
+comment3.target=void\ sendInstructions(java.util.ArrayList)
+comment4.params=entry
+comment4.target=void\ receiveLog(RequestEntry)
+numComments=5

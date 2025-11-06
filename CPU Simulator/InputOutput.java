@@ -1,33 +1,34 @@
+import java.util.*;
 
-/**
- * Write a description of class InputOutput here.
- *
- * @author (your name)
- * @version (a version number or a date)
- */
 public class InputOutput
 {
-    // instance variables - replace the example below with your own
-    private int x;
-
-    /**
-     * Constructor for objects of class InputOutput
-     */
+    private Bus bus;
+    
     public InputOutput()
     {
-        // initialise instance variables
-        x = 0;
+        
     }
-
-    /**
-     * An example of a method - replace this comment with your own
-     *
-     * @param  y  a sample parameter for a method
-     * @return    the sum of x and y
-     */
-    public int sampleMethod(int y)
+    
+    public void setBut(Bus bus)
     {
-        // put your code here
-        return x + y;
+        this.bus = bus;
+    }
+    
+    public void sendInstructions(ArrayList<String> daScript) // send the script to the CPU one line at a time
+    {
+        for (int lineNum = 0; lineNum < daScript.size(); lineNum++)
+        {
+            RequestEntry entry = new RequestEntry(-lineNum, bus.busLatency + (daScript.size() - lineNum), lineNum, 0, daScript.get(lineNum));
+            entry.writeFlag = true;
+            
+            if (lineNum == daScript.size() - 1) entry.complete = true;
+            
+            bus.uploadRequest(entry);
+        }
+    }
+    
+    public void receiveLog(RequestEntry entry) // receive logs from the CPU
+    {
+        // TODO: DO LATER
     }
 }

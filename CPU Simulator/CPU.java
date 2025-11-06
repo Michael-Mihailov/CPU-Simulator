@@ -9,13 +9,16 @@ public class CPU
     
     ArrayList<String> programInstructions = new ArrayList();
     
-    PipelineEntry[] pipeline = new PipelineEntry[7]; // fetch inst., decode inst., calculate op., fetch op., execute inst., write op., write bk. 
+    PipelineEntry[] pipeline = new PipelineEntry[6]; // fetch inst., decode inst., calculate op., fetch op., execute inst., write op., write bk. 
     private HashSet<String> hazardSet = new HashSet(); // marks registers and addresses that are yet to be written to (RAW hazard)
     private ArrayDeque<RequestEntry> requestQueue = new ArrayDeque(); // buffer for received requestEntries
     
     private Bus bus;
     
     private int nextEntryID = 1;
+    private int logNum = 1; // the ID# of the next log
+    private int cycleNum = 0; // The current clock cycle number
+    
     
     public CPU(Bus bus)
     {
@@ -203,10 +206,23 @@ public class CPU
                     registers.setRegister(destination, currentPipeEntry.executedValue);
                     hazardSet.remove(destination); // remove the hazard
                 }
+                
+                pipeline[i] = currentPipeEntry;
+                pipeline[i-1] = null;
             }
             else if (i == 6) // (WB) Write Back
             {
-                // TODO: send diagnostic logs back to I/O
+                int daID = cycleNum; // send over the current clock cycle
+                int eta = bus.busLatency;
+                int address = logNum; logNum++;
+                int control = 1;
+                String strData = currentPipeEntry.instruction;
+                RequestEntry tempEntry = new RequestEntry(daID, eta, address, control, strData);
+                tempEntry.writeFlag = true;
+                
+                bus.uploadRequest(tempEntry); // Send a log to I/O
+                
+                pipeline[i-1] = null;
             }
         }
     }
@@ -281,11 +297,18 @@ public class CPU
     {
         // TODO: unmark data hazards
         // TODO: update the relavent pipeline entries
+        
     }
     
     public void receiveInstruction(RequestEntry entry) // receives instructions from I/O
     {
+        String line = entry.strData;
+        programInstructions.add(line);
         
+        if (entry.complete == true)
+        {
+            // TODO: Start the actual programm
+        }
     }
     
     public void cacheWriteBack(RequestEntry entry) // redirect cache data to a lower tier of memory
