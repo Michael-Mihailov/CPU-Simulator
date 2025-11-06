@@ -1,0 +1,11 @@
+#BlueJ class context
+comment0.target=Registers
+comment1.params=
+comment1.target=Registers()
+comment2.params=name
+comment2.target=boolean\ isUserRegister(java.lang.String)
+comment3.params=name
+comment3.target=int\ getRegister(java.lang.String)
+comment4.params=name\ value
+comment4.target=void\ setRegister(java.lang.String,\ int)
+numComments=5

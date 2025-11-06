@@ -1,7 +1,0 @@
-#BlueJ class context
-comment0.target=RequestEntry
-comment1.params=id\ eta\ address\ control\ data
-comment1.target=RequestEntry(int,\ int,\ int,\ int,\ int)
-comment2.params=id\ eta\ address\ control\ strData
-comment2.target=RequestEntry(int,\ int,\ int,\ int,\ java.lang.String)
-numComments=3
