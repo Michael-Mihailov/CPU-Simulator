@@ -54,31 +54,49 @@ public class CPU
                 
                 // mark register as a hazard if need
                 String temp = currentPipeEntry.decodedInstruction[1];
-                if ((temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') == false) // check if it is NOT memory
+                if ((temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') == false) // check if the destination is NOT memory
                 {
                     hazardSet.add(temp);
+                    currentPipeEntry.exclusiveSet.add(temp); // NOTE: POSSIBLE ERRORS
                 }
                 
                 pipeline[i] = currentPipeEntry;
                 pipeline[i-1] = null;
             }
-            else if (i == 2) // (CO) Calculate Operands              TODO: Implement stalling
+            else if (i == 2) // (CO) Calculate Operands
             {
                 currentPipeEntry.calculatedBuffer = new String[currentPipeEntry.decodedInstruction.length];
                 
                 for (int j = 0; j < currentPipeEntry.calculatedBuffer.length; j++)
                 {
                     String temp = currentPipeEntry.decodedInstruction[j];
-                    // replace registers with their values
-                    temp.replaceAll("EAX", ""+registers.getRegister("EAX"));
-                    temp.replaceAll("EBX", ""+registers.getRegister("EBX"));
-                    temp.replaceAll("ECX", ""+registers.getRegister("ECX"));
-                    temp.replaceAll("EDX", ""+registers.getRegister("EDX"));
+                    // replace registers with their values (and check for hazards)
+                    for (String userRegister : registers.viewUserRegisters())
+                    {
+                        if (temp.contains(userRegister))
+                        {
+                            if (hazardSet.contains(userRegister) && currentPipeEntry.exclusiveSet.contains(userRegister) == false) // check if the register is a hazard
+                            {
+                                currentPipeEntry.stall = true;
+                                currentPipeEntry.stallCondition.add(userRegister);
+                            }
+                            else // not a data hazard
+                            {
+                                temp.replaceAll(userRegister, ""+registers.getRegister(userRegister));
+                            }
+                        }
+                    }
                     
                     if (temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') // check if it is memory
                     {
                         temp = temp.substring(1, temp.length() - 1);
                         temp = "[" + doAlgebra(temp) + "]";
+                        
+                        if (j == 1) // flag data hazard
+                        {
+                            hazardSet.add(temp);
+                            currentPipeEntry.exclusiveSet.add(temp); // NOTE: POSSIBLE ERRORS
+                        }
                     }
                     
                     currentPipeEntry.calculatedBuffer[j] = temp;
@@ -108,9 +126,10 @@ public class CPU
                         int address = Integer.parseInt(temp);
                         
                         // check for hazards
-                        if (hazardSet.contains(address + ""))
+                        if (hazardSet.contains(address + "") && currentPipeEntry.exclusiveSet.contains(address + "") == false)
                         {
                             currentPipeEntry.stall = true;
+                            currentPipeEntry.stallCondition.add(address + "");
                         }
                         
                         // more stuff for creating request
@@ -168,8 +187,16 @@ public class CPU
                 String destination = currentPipeEntry.calculatedBuffer[1];
                 if (destination.charAt(0) == '[' && destination.charAt(destination.length()-1) == ']') // check if it is memory
                 {
+                    // write to memory
                     destination = destination.substring(1, destination.length() - 1);
-                    // TODO: LATER
+                    int daID = requestID();
+                    int eta = cacheLatencies[0];
+                    int control = -1;
+                    int data = 0;
+                    RequestEntry tempEntry = new RequestEntry(daID, eta, Integer.parseInt(destination), control, data);
+                    tempEntry.writeFlag = true;
+                    tempEntry.targetMemoryLayer = 0;
+                    requestMemory(tempEntry);
                 }
                 else // it is a register
                 {
@@ -179,7 +206,7 @@ public class CPU
             }
             else if (i == 6) // (WB) Write Back
             {
-                
+                // TODO: send diagnostic logs back to I/O
             }
         }
     }
@@ -187,6 +214,9 @@ public class CPU
     private class PipelineEntry
     {
         public boolean stall = false; // in case of data hazards
+        public HashSet<String> stallCondition = new HashSet(); // the address/name of the data needed to resolve the stall
+        
+        public HashSet<String> exclusiveSet = new HashSet(); // The data hazards that ONLY THIS ENTRY can access
         
         public String instruction; // (FI)
         public String[] decodedInstruction; // (DI)
@@ -241,6 +271,8 @@ public class CPU
         }
         else // check main memory
         {
+            if (entry.writeFlag == false) entry.control = 2;
+            else entry.control = 3;
             bus.uploadRequest(entry);
         }
     }

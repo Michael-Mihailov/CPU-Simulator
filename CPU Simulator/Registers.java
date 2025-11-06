@@ -21,6 +21,10 @@ public class Registers
     {
         return userRegisters.contains(name);
     }
+    public HashSet<String> viewUserRegisters()
+    {
+        return new HashSet(userRegisters);
+    }
     
     public int getRegister(String name)
     {
