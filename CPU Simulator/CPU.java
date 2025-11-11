@@ -11,9 +11,11 @@ public class CPU
     
     PipelineEntry[] pipeline = new PipelineEntry[6]; // fetch inst., decode inst., calculate op., fetch op., execute inst., write op., write bk. 
     private HashSet<String> hazardSet = new HashSet(); // marks registers and addresses that are yet to be written to (RAW hazard)
-    private ArrayDeque<RequestEntry> requestQueue = new ArrayDeque(); // buffer for received requestEntries
     
     private Bus bus;
+    
+    boolean executingScript = false; // true when a "script" is being run
+    boolean shutdown = false; // true when it is time to end the "script" (accept no new pipeline entries)
     
     private int nextEntryID = 1;
     private int logNum = 1; // the ID# of the next log
@@ -34,195 +36,204 @@ public class CPU
         bus.cycle();
         clockCache();
         
-        // update the pipeline
-        for (int i = pipeline.length - 1; i >= 0; i--)
+        if (executingScript == true)
         {
-            PipelineEntry currentPipeEntry = pipeline[i];
-            
-            if (pipeline[i] != null) continue; // The pipeline has a stall
-            if (i > 0 && pipeline[i] == null) continue; // there is nothing to pipeline
-            if (pipeline[i].stall == true) continue; // wait for the stall to be resolved
-            
-            if (i == 0) // (FI) Fetch Instruction
+            // update the pipeline
+            for (int i = pipeline.length - 1; i >= 0; i--)
             {
-                currentPipeEntry = new PipelineEntry();
-                currentPipeEntry.instruction = programInstructions.get( registers.getRegister("PC") ); // get the next instruction
-                registers.setRegister("PC", registers.getRegister("PC") + 1); // increment the program counter
+                PipelineEntry currentPipeEntry = null;
+                if (i > 0) currentPipeEntry = pipeline[i - 1];
                 
-                pipeline[i] = currentPipeEntry; // add a new entry to the pipeline
-            }
-            else if (i == 1) // (DI) Decode Instruction
-            {
-                currentPipeEntry.decodedInstruction = currentPipeEntry.instruction.split(" "); // turn the instruction into tokens
+                if (pipeline[i] != null) continue; // The pipeline has a stall
+                if (i > 0 && currentPipeEntry == null) continue; // there is nothing to pipeline
+                if (currentPipeEntry.stall == true) continue; // wait for the stall to be resolved
+                if (currentPipeEntry.reading == true) continue; // wait for read request to finish
                 
-                // mark register as a hazard if need
-                String temp = currentPipeEntry.decodedInstruction[1];
-                if ((temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') == false) // check if the destination is NOT memory
+                if (i == 0) // (FI) Fetch Instruction
                 {
-                    hazardSet.add(temp);
-                    currentPipeEntry.exclusiveSet.add(temp); // NOTE: POSSIBLE ERRORS
-                }
-                
-                pipeline[i] = currentPipeEntry;
-                pipeline[i-1] = null;
-            }
-            else if (i == 2) // (CO) Calculate Operands
-            {
-                currentPipeEntry.calculatedBuffer = new String[currentPipeEntry.decodedInstruction.length];
-                
-                for (int j = 0; j < currentPipeEntry.calculatedBuffer.length; j++)
-                {
-                    String temp = currentPipeEntry.decodedInstruction[j];
-                    // replace registers with their values (and check for hazards)
-                    for (String userRegister : registers.viewUserRegisters())
+                    if (shutdown == true) 
                     {
-                        if (temp.contains(userRegister))
+                        boolean clearedPipeline = true;
+                        for (int j = 0; j < pipeline.length; j++)
                         {
-                            if (hazardSet.contains(userRegister) && currentPipeEntry.exclusiveSet.contains(userRegister) == false) // check if the register is a hazard
+                            if (pipeline[j] != null) clearedPipeline = false;
+                        }
+                        if (clearedPipeline == true) executingScript = false; // gracefully finish execution
+                        continue; // no new pipelineEntries when shutting down
+                    }
+                    
+                    currentPipeEntry = new PipelineEntry();
+                    currentPipeEntry.instruction = programInstructions.get( registers.getRegister("PC") ); // get the next instruction
+                    registers.setRegister("PC", registers.getRegister("PC") + 1); // increment the program counter
+                    
+                    pipeline[i] = currentPipeEntry; // add a new entry to the pipeline
+                }
+                else if (i == 1) // (DI) Decode Instruction
+                {
+                    currentPipeEntry.decodedInstruction = currentPipeEntry.instruction.split(" "); // turn the instruction into tokens
+                    
+                    // mark register as a hazard if need
+                    String temp = currentPipeEntry.decodedInstruction[1];
+                    if ((temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') == false) // check if the destination is NOT memory
+                    {
+                        hazardSet.add(temp);
+                        currentPipeEntry.exclusiveSet.add(temp); // NOTE: POSSIBLE ERRORS
+                    }
+                    
+                    pipeline[i] = currentPipeEntry;
+                    pipeline[i-1] = null;
+                }
+                else if (i == 2) // (CO) Calculate Operands
+                {
+                    currentPipeEntry.calculatedBuffer = new String[currentPipeEntry.decodedInstruction.length];
+                    
+                    for (int j = 0; j < currentPipeEntry.calculatedBuffer.length; j++)
+                    {
+                        String temp = currentPipeEntry.decodedInstruction[j];
+                        // replace registers with their values (and check for hazards)
+                        for (String userRegister : registers.viewUserRegisters())
+                        {
+                            if (temp.contains(userRegister))
+                            {
+                                if (hazardSet.contains(userRegister) && currentPipeEntry.exclusiveSet.contains(userRegister) == false) // check if the register is a hazard
+                                {
+                                    currentPipeEntry.stall = true;
+                                    currentPipeEntry.stallCondition.add(userRegister);
+                                }
+                                else // not a data hazard
+                                {
+                                    temp.replaceAll(userRegister, ""+registers.getRegister(userRegister));
+                                }
+                            }
+                        }
+                        
+                        if (temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') // check if it is memory
+                        {
+                            temp = temp.substring(1, temp.length() - 1);
+                            temp = "[" + doAlgebra(temp) + "]";
+                            
+                            if (j == 1) // flag data hazard
+                            {
+                                hazardSet.add(temp);
+                                currentPipeEntry.exclusiveSet.add(temp); // NOTE: POSSIBLE ERRORS
+                            }
+                        }
+                        
+                        currentPipeEntry.calculatedBuffer[j] = temp;
+                    }
+                    
+                    pipeline[i] = currentPipeEntry;
+                    pipeline[i-1] = null;
+                }
+                else if (i == 3) // (FO) Fetch Operands
+                {
+                    for(int j = 1; i < currentPipeEntry.calculatedBuffer.length; i++)
+                    {
+                        String temp = currentPipeEntry.calculatedBuffer[j];
+                        
+                        if (temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') // check if it is memory
+                        {
+                            // check what the address is
+                            temp = temp.substring(1, temp.length() - 1);
+                            int address = Integer.parseInt(temp);
+                            
+                            // check for hazards
+                            if (hazardSet.contains("["+address+"]") && currentPipeEntry.exclusiveSet.contains("["+address+"]") == false)
                             {
                                 currentPipeEntry.stall = true;
-                                currentPipeEntry.stallCondition.add(userRegister);
+                                currentPipeEntry.stallCondition.add("["+address+"]");
                             }
-                            else // not a data hazard
-                            {
-                                temp.replaceAll(userRegister, ""+registers.getRegister(userRegister));
-                            }
+                            
+                            // more stuff for creating request
+                            int daID = requestID();
+                            int eta = cacheLatencies[0];
+                            int control = -1;
+                            int data = 0;
+                            RequestEntry tempEntry = new RequestEntry(daID, eta, address, control, data);
+                            tempEntry.targetMemoryLayer = 0;
+                            requestMemory(tempEntry);
+                            
+                            // put the id into the fetchBuffer temporarily
+                            currentPipeEntry.fetchBuffer[j] = "#" + daID;
+                            currentPipeEntry.reading = true;
+                        }
+                        else
+                        {
+                            currentPipeEntry.fetchBuffer[j] = temp;
                         }
                     }
                     
-                    if (temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') // check if it is memory
+                    pipeline[i] = currentPipeEntry;
+                    pipeline[i-1] = null;
+                }
+                else if (i == 4) // (EI) Execute Instructions
+                {
+                    int temp = 0;
+                    if (currentPipeEntry.fetchBuffer[0] == "ADD")
                     {
-                        temp = temp.substring(1, temp.length() - 1);
-                        temp = "[" + doAlgebra(temp) + "]";
-                        
-                        if (j == 1) // flag data hazard
-                        {
-                            hazardSet.add(temp);
-                            currentPipeEntry.exclusiveSet.add(temp); // NOTE: POSSIBLE ERRORS
-                        }
+                        temp = Integer.parseInt(currentPipeEntry.fetchBuffer[1]) + Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
+                    }
+                    else if (currentPipeEntry.fetchBuffer[0] == "SUB")
+                    {
+                        temp = Integer.parseInt(currentPipeEntry.fetchBuffer[1]) - Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
+                    }
+                    else if (currentPipeEntry.fetchBuffer[0] == "LOAD")
+                    {
+                        temp = Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
+                    }
+                    else if (currentPipeEntry.fetchBuffer[0] == "STORE")
+                    {
+                        temp = Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
+                    }
+                    else if (currentPipeEntry.fetchBuffer[0] == "HALT")
+                    {
+                        shutdown = true; // begin shutting down the pipeline
                     }
                     
-                    currentPipeEntry.calculatedBuffer[j] = temp;
-                }
-                
-                // mark memory as a hazard if needed
-                String temp = currentPipeEntry.calculatedBuffer[1];
-                if (temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') // check if it is memory
-                {
-                    temp = temp.substring(1, temp.length() - 1);
-                    hazardSet.add(temp);
-                }
-                
-                pipeline[i] = currentPipeEntry;
-                pipeline[i-1] = null;
-            }
-            else if (i == 3) // (FO) Fetch Operands
-            {
-                for(int j = 1; i < currentPipeEntry.calculatedBuffer.length; i++)
-                {
-                    String temp = currentPipeEntry.calculatedBuffer[j];
+                    currentPipeEntry.executedValue = temp;
                     
-                    if (temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') // check if it is memory
+                    pipeline[i] = currentPipeEntry;
+                    pipeline[i-1] = null;
+                }
+                else if (i == 5) // (WO) Write Operand
+                {
+                    String destination = currentPipeEntry.calculatedBuffer[1];
+                    if (destination.charAt(0) == '[' && destination.charAt(destination.length()-1) == ']') // check if it is memory
                     {
-                        // check what the address is
-                        temp = temp.substring(1, temp.length() - 1);
-                        int address = Integer.parseInt(temp);
-                        
-                        // check for hazards
-                        if (hazardSet.contains(address + "") && currentPipeEntry.exclusiveSet.contains(address + "") == false)
-                        {
-                            currentPipeEntry.stall = true;
-                            currentPipeEntry.stallCondition.add(address + "");
-                        }
-                        
-                        // more stuff for creating request
+                        // write to memory
+                        destination = destination.substring(1, destination.length() - 1);
                         int daID = requestID();
                         int eta = cacheLatencies[0];
                         int control = -1;
                         int data = 0;
-                        RequestEntry tempEntry = new RequestEntry(daID, eta, address, control, data);
+                        RequestEntry tempEntry = new RequestEntry(daID, eta, Integer.parseInt(destination), control, data);
+                        tempEntry.writeFlag = true;
                         tempEntry.targetMemoryLayer = 0;
                         requestMemory(tempEntry);
-                        
-                        // put the id into the fetchBuffer temporarily
-                        currentPipeEntry.fetchBuffer[j] = "#" + daID;
                     }
-                    else
+                    else // it is a register
                     {
-                        currentPipeEntry.fetchBuffer[j] = temp;
+                        registers.setRegister(destination, currentPipeEntry.executedValue);
+                        hazardSet.remove(destination); // remove the hazard
                     }
+                    
+                    pipeline[i] = currentPipeEntry;
+                    pipeline[i-1] = null;
                 }
-                
-                pipeline[i] = currentPipeEntry;
-                pipeline[i-1] = null;
-            }
-            else if (i == 4) // (EI) Execute Instructions
-            {
-                int temp = 0;
-                if (currentPipeEntry.fetchBuffer[0] == "ADD")
+                else if (i == 6) // (WB) Write Back
                 {
-                    temp = Integer.parseInt(currentPipeEntry.fetchBuffer[1]) + Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
-                }
-                else if (currentPipeEntry.fetchBuffer[0] == "SUB")
-                {
-                    temp = Integer.parseInt(currentPipeEntry.fetchBuffer[1]) - Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
-                }
-                else if (currentPipeEntry.fetchBuffer[0] == "LOAD")
-                {
-                    temp = Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
-                }
-                else if (currentPipeEntry.fetchBuffer[0] == "STORE")
-                {
-                    temp = Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
-                }
-                else if (currentPipeEntry.fetchBuffer[0] == "HALT")
-                {
-                    // TODO: DO LATER
-                }
-                
-                currentPipeEntry.executedValue = temp;
-                
-                pipeline[i] = currentPipeEntry;
-                pipeline[i-1] = null;
-            }
-            else if (i == 5) // (WO) Write Operand
-            {
-                String destination = currentPipeEntry.calculatedBuffer[1];
-                if (destination.charAt(0) == '[' && destination.charAt(destination.length()-1) == ']') // check if it is memory
-                {
-                    // write to memory
-                    destination = destination.substring(1, destination.length() - 1);
-                    int daID = requestID();
-                    int eta = cacheLatencies[0];
-                    int control = -1;
-                    int data = 0;
-                    RequestEntry tempEntry = new RequestEntry(daID, eta, Integer.parseInt(destination), control, data);
+                    int daID = cycleNum; // send over the current clock cycle
+                    int eta = bus.busLatency;
+                    int address = logNum; logNum++;
+                    int control = 1;
+                    String strData = currentPipeEntry.instruction;
+                    RequestEntry tempEntry = new RequestEntry(daID, eta, address, control, strData);
                     tempEntry.writeFlag = true;
-                    tempEntry.targetMemoryLayer = 0;
-                    requestMemory(tempEntry);
+                    
+                    bus.uploadRequest(tempEntry); // Send a log to I/O
+                    
+                    pipeline[i-1] = null;
                 }
-                else // it is a register
-                {
-                    registers.setRegister(destination, currentPipeEntry.executedValue);
-                    hazardSet.remove(destination); // remove the hazard
-                }
-                
-                pipeline[i] = currentPipeEntry;
-                pipeline[i-1] = null;
-            }
-            else if (i == 6) // (WB) Write Back
-            {
-                int daID = cycleNum; // send over the current clock cycle
-                int eta = bus.busLatency;
-                int address = logNum; logNum++;
-                int control = 1;
-                String strData = currentPipeEntry.instruction;
-                RequestEntry tempEntry = new RequestEntry(daID, eta, address, control, strData);
-                tempEntry.writeFlag = true;
-                
-                bus.uploadRequest(tempEntry); // Send a log to I/O
-                
-                pipeline[i-1] = null;
             }
         }
     }
@@ -230,6 +241,7 @@ public class CPU
     private class PipelineEntry
     {
         public boolean stall = false; // in case of data hazards
+        public boolean reading = false; // waiting on memory request
         public HashSet<String> stallCondition = new HashSet(); // the address/name of the data needed to resolve the stall
         
         public HashSet<String> exclusiveSet = new HashSet(); // The data hazards that ONLY THIS ENTRY can access
@@ -295,9 +307,53 @@ public class CPU
     
     public void receiveMemory(RequestEntry entry) // deals with receiving completed memory requests
     {
-        // TODO: unmark data hazards
-        // TODO: update the relavent pipeline entries
-        
+        int id = entry.id;
+        int address = entry.address;
+        int data = entry.data;
+        if (entry.writeFlag == true) // finished write request
+        {
+            // End applicable hazards/stalls
+            hazardSet.remove("[" + address + "]");
+            for (PipelineEntry pipeEntry : pipeline)
+            {
+                if (pipeEntry.exclusiveSet.contains("[" + address + "]"))
+                {
+                    pipeEntry.exclusiveSet.remove("[" + address + "]");
+                }
+                if (pipeEntry.stall == true && pipeEntry.stallCondition.contains(address + ""))
+                {
+                    pipeEntry.stallCondition.remove(address + "");
+                    if (pipeEntry.stallCondition.size() == 0) pipeEntry.stall = false;
+                }
+            }
+        }
+        else // finished read request
+        {
+            // Fullfill "reading" flag
+            for (PipelineEntry pipeEntry : pipeline)
+            {
+                if (pipeEntry.reading == true)
+                {
+                    boolean doneReading = true;
+                    for (int i = 0; i < pipeEntry.fetchBuffer.length; i++)
+                    {
+                        String s = pipeEntry.fetchBuffer[i];
+                        if (s != null && s.charAt(0) == '#')
+                        {
+                            if (s.equals("#" + id))
+                            {
+                                pipeEntry.fetchBuffer[i] = data+"";
+                            }
+                            else
+                            {
+                                doneReading = false;
+                            }
+                        }
+                    }
+                    if (doneReading == true) pipeEntry.reading = false;
+                }
+            }
+        }
     }
     
     public void receiveInstruction(RequestEntry entry) // receives instructions from I/O
@@ -305,9 +361,9 @@ public class CPU
         String line = entry.strData;
         programInstructions.add(line);
         
-        if (entry.complete == true)
+        if (entry.complete == true) // begin "script" execution
         {
-            // TODO: Start the actual programm
+            executingScript = true;
         }
     }
     

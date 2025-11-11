@@ -28,7 +28,7 @@ public class Bus
                 continue;
             }
             
-            int resData = 0;
+            entry.complete = true;
             
             switch (entry.control)
             {
@@ -39,13 +39,14 @@ public class Bus
                     inOut.receiveLog(entry);
                     break;
                 case 2: // CPU to Main Memory READ
-                    resData = mainMemory.getDword(entry.address);
+                    entry.data = mainMemory.getDword(entry.address);
+                    cpu.receiveMemory(entry);
                     break;
                 case 3: // CPU to Main Memory WRITE
                     mainMemory.putDword(entry.address, entry.data);
-            }
-            
-            // TODO
+                    cpu.receiveMemory(entry);
+                    break;
+            }            
         }
     }
     
