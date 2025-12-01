@@ -12,7 +12,9 @@ public class Bus
     
     public Bus(CPU cpu, InputOutput inOut, MainMemory mainMemory)
     {
-        
+        this.cpu = cpu;
+        this.inOut = inOut;
+        this.mainMemory = mainMemory;
     }
     
     public void cycle() // simulate movement along the bus

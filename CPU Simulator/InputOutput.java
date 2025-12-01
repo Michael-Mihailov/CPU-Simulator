@@ -29,6 +29,8 @@ public class InputOutput
     
     public void receiveLog(RequestEntry entry) // receive logs from the CPU
     {
-        // TODO: DO LATER
+        System.out.println("Log #" + entry.id);
+        System.out.println("Completion Cycle #" + entry.address);
+        System.out.println("Instruction Completed: " + entry.strData);
     }
 }

@@ -14,23 +14,27 @@ public class CPU
     
     private Bus bus;
     
-    boolean executingScript = false; // true when a "script" is being run
-    boolean shutdown = false; // true when it is time to end the "script" (accept no new pipeline entries)
+    public boolean executingScript = false; // true when a "script" is being run
+    public boolean shutdown = false; // true when it is time to end the "script" (accept no new pipeline entries)
     
     private int nextEntryID = 1;
     private int logNum = 1; // the ID# of the next log
     private int cycleNum = 0; // The current clock cycle number
     
     
-    public CPU(Bus bus)
+    public CPU()
     {
-        this.bus = bus;
         cacheArr[0] = new Cache(8, this, 0);
         cacheArr[1] = new Cache(16, this, 1);
         cacheArr[2] = new Cache(32, this, 2);
     }
     
-    private void simulate()
+    public void setBut(Bus bus)
+    {
+        this.bus = bus;
+    }
+    
+    public void simulate()
     {
         // clock external stuff
         bus.cycle();
@@ -46,8 +50,8 @@ public class CPU
                 
                 if (pipeline[i] != null) continue; // The pipeline has a stall
                 if (i > 0 && currentPipeEntry == null) continue; // there is nothing to pipeline
-                if (currentPipeEntry.stall == true) continue; // wait for the stall to be resolved
-                if (currentPipeEntry.reading == true) continue; // wait for read request to finish
+                if (currentPipeEntry != null && currentPipeEntry.stall == true) continue; // wait for the stall to be resolved
+                if (currentPipeEntry != null && currentPipeEntry.reading == true) continue; // wait for read request to finish
                 
                 if (i == 0) // (FI) Fetch Instruction
                 {
@@ -62,6 +66,8 @@ public class CPU
                         continue; // no new pipelineEntries when shutting down
                     }
                     
+                    if (registers.getRegister("PC") >= programInstructions.size()) continue; // can't read lines that don't exist
+                    
                     currentPipeEntry = new PipelineEntry();
                     currentPipeEntry.instruction = programInstructions.get( registers.getRegister("PC") ); // get the next instruction
                     registers.setRegister("PC", registers.getRegister("PC") + 1); // increment the program counter
@@ -72,12 +78,15 @@ public class CPU
                 {
                     currentPipeEntry.decodedInstruction = currentPipeEntry.instruction.split(" "); // turn the instruction into tokens
                     
-                    // mark register as a hazard if need
-                    String temp = currentPipeEntry.decodedInstruction[1];
-                    if ((temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') == false) // check if the destination is NOT memory
+                    if (currentPipeEntry.decodedInstruction.length > 1)
                     {
-                        hazardSet.add(temp);
-                        currentPipeEntry.exclusiveSet.add(temp); // NOTE: POSSIBLE ERRORS
+                        // mark register as a hazard if need
+                        String temp = currentPipeEntry.decodedInstruction[1];
+                        if ((temp.charAt(0) == '[' && temp.charAt(temp.length()-1) == ']') == false) // check if the destination is NOT memory
+                        {
+                            hazardSet.add(temp);
+                            currentPipeEntry.exclusiveSet.add(temp); // NOTE: POSSIBLE ERRORS
+                        }
                     }
                     
                     pipeline[i] = currentPipeEntry;
@@ -169,23 +178,23 @@ public class CPU
                 else if (i == 4) // (EI) Execute Instructions
                 {
                     int temp = 0;
-                    if (currentPipeEntry.fetchBuffer[0] == "ADD")
+                    if (currentPipeEntry.decodedInstruction[0] == "ADD")
                     {
                         temp = Integer.parseInt(currentPipeEntry.fetchBuffer[1]) + Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
                     }
-                    else if (currentPipeEntry.fetchBuffer[0] == "SUB")
+                    else if (currentPipeEntry.decodedInstruction[0] == "SUB")
                     {
                         temp = Integer.parseInt(currentPipeEntry.fetchBuffer[1]) - Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
                     }
-                    else if (currentPipeEntry.fetchBuffer[0] == "LOAD")
+                    else if (currentPipeEntry.decodedInstruction[0] == "LOAD")
                     {
                         temp = Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
                     }
-                    else if (currentPipeEntry.fetchBuffer[0] == "STORE")
+                    else if (currentPipeEntry.decodedInstruction[0] == "STORE")
                     {
                         temp = Integer.parseInt(currentPipeEntry.fetchBuffer[2]);
                     }
-                    else if (currentPipeEntry.fetchBuffer[0] == "HALT")
+                    else if (currentPipeEntry.decodedInstruction[0] == "HALT")
                     {
                         shutdown = true; // begin shutting down the pipeline
                     }
@@ -197,24 +206,27 @@ public class CPU
                 }
                 else if (i == 5) // (WO) Write Operand
                 {
-                    String destination = currentPipeEntry.calculatedBuffer[1];
-                    if (destination.charAt(0) == '[' && destination.charAt(destination.length()-1) == ']') // check if it is memory
+                    if (currentPipeEntry.decodedInstruction.length > 1)
                     {
-                        // write to memory
-                        destination = destination.substring(1, destination.length() - 1);
-                        int daID = requestID();
-                        int eta = cacheLatencies[0];
-                        int control = -1;
-                        int data = 0;
-                        RequestEntry tempEntry = new RequestEntry(daID, eta, Integer.parseInt(destination), control, data);
-                        tempEntry.writeFlag = true;
-                        tempEntry.targetMemoryLayer = 0;
-                        requestMemory(tempEntry);
-                    }
-                    else // it is a register
-                    {
-                        registers.setRegister(destination, currentPipeEntry.executedValue);
-                        hazardSet.remove(destination); // remove the hazard
+                        String destination = currentPipeEntry.calculatedBuffer[1];
+                        if (destination.charAt(0) == '[' && destination.charAt(destination.length()-1) == ']') // check if it is memory
+                        {
+                            // write to memory
+                            destination = destination.substring(1, destination.length() - 1);
+                            int daID = requestID();
+                            int eta = cacheLatencies[0];
+                            int control = -1;
+                            int data = 0;
+                            RequestEntry tempEntry = new RequestEntry(daID, eta, Integer.parseInt(destination), control, data);
+                            tempEntry.writeFlag = true;
+                            tempEntry.targetMemoryLayer = 0;
+                            requestMemory(tempEntry);
+                        }
+                        else // it is a register
+                        {
+                            registers.setRegister(destination, currentPipeEntry.executedValue);
+                            hazardSet.remove(destination); // remove the hazard
+                        }
                     }
                     
                     pipeline[i] = currentPipeEntry;
@@ -372,7 +384,8 @@ public class CPU
         if (entry.targetMemoryLayer == 3) entry.eta = bus.busLatency;
         else entry.eta = cacheLatencies[entry.targetMemoryLayer];
         
-        // TODO: mark the address in entry as a data hazard
+        // mark the address in entry as a data hazard
+        hazardSet.add("["+entry.address+"]");
         
         requestMemory(entry);
     }
