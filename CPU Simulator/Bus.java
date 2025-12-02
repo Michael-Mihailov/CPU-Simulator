@@ -24,7 +24,7 @@ public class Bus
             RequestEntry entry = busQueue.remove();
             entry.eta -= 1;
             
-            if (entry.eta != 0)
+            if (entry.eta > 0)
             {
                 busQueue.add(entry);
                 continue;
